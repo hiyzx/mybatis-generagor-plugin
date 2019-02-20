@@ -1,5 +1,11 @@
 package org.mybatis.plugin;
 
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.text.SimpleDateFormat;
+import java.util.*;
+
 import org.apache.commons.lang.StringUtils;
 import org.mybatis.generator.api.*;
 import org.mybatis.generator.api.dom.java.*;
@@ -11,14 +17,9 @@ import org.mybatis.generator.internal.db.ConnectionFactory;
 import org.mybatis.generator.internal.util.StringUtility;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import tk.mybatis.mapper.MapperException;
 import tk.mybatis.mapper.generator.MapperCommentGenerator;
-
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.text.SimpleDateFormat;
-import java.util.*;
 
 /**
  * @see https://github.com/shan-ren/mybatis-generator-plugins-auto-comments/blob
@@ -527,8 +528,6 @@ public class CommentWithoutSwaggerPlugin extends PluginAdapter {
     public boolean sqlMapSelectAllElementGenerated(XmlElement element, IntrospectedTable introspectedTable) {
         return false;
     }
-
-
 
     private void closeConnection(Connection connection, ResultSet rs) {
         if (null != rs) {

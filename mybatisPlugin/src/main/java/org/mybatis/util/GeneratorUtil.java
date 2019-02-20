@@ -11,7 +11,10 @@ import org.mybatis.generator.internal.DefaultShellCallback;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * @author yezhaoxing
@@ -26,25 +29,28 @@ public class GeneratorUtil {
     }
 
     public void generator() {
+        Context context = context();
         for (TableProperties tableProperties : properties.getTablePropertiesList()) {
             // 根据需求生成，不需要的注掉，模板有问题的话可以自己修改。
-            genModelAndMapper(tableProperties);
+            genModelAndMapper(context, tableProperties);
             genService(tableProperties.getTableName());
         }
     }
 
-    private void genModelAndMapper(TableProperties tableProperties) {
+    private Context context() {
         Context context = new Context(ModelType.FLAT);
-        context.setId("mysql");
+        context.setId("mysql");// oracle or mysql
         context.setTargetRuntime("MyBatis3Simple");
         context.addProperty(PropertyRegistry.CONTEXT_BEGINNING_DELIMITER, "`");
         context.addProperty(PropertyRegistry.CONTEXT_ENDING_DELIMITER, "`");
 
+        // 数据库链接URL，用户名、密码
         JDBCConnectionConfiguration jdbcConnectionConfiguration = new JDBCConnectionConfiguration();
         jdbcConnectionConfiguration.setConnectionURL(properties.getJdbcUrl());
         jdbcConnectionConfiguration.setUserId(properties.getJdbcUsername());
         jdbcConnectionConfiguration.setPassword(properties.getJdbcPassword());
         jdbcConnectionConfiguration.setDriverClass(properties.getJdbcClassDriverName());
+        jdbcConnectionConfiguration.addProperty("remarksReporting", "true");// 针对oracle
         context.setJdbcConnectionConfiguration(jdbcConnectionConfiguration);
 
         CommentGeneratorConfiguration commentGeneratorConfiguration = new CommentGeneratorConfiguration();
@@ -57,31 +63,45 @@ public class GeneratorUtil {
         pluginConfiguration.addProperty("mappers", properties.getMyMapperFile());
         context.addPluginConfiguration(pluginConfiguration);
 
+        // 生成模型的包名和位置
         JavaModelGeneratorConfiguration javaModelGeneratorConfiguration = new JavaModelGeneratorConfiguration();
         javaModelGeneratorConfiguration.setTargetProject(properties.getProjectPath() + properties.getJavaPath());
         javaModelGeneratorConfiguration.setTargetPackage(properties.getModelPackage());
+        javaModelGeneratorConfiguration.addProperty("enableSubPackages", "true");
+        javaModelGeneratorConfiguration.addProperty("trimStrings", "true");
         context.setJavaModelGeneratorConfiguration(javaModelGeneratorConfiguration);
 
+        // 生成映射文件的包名和位置
         SqlMapGeneratorConfiguration sqlMapGeneratorConfiguration = new SqlMapGeneratorConfiguration();
         sqlMapGeneratorConfiguration.setTargetProject(properties.getProjectPath() + properties.getResourcePath());
         sqlMapGeneratorConfiguration.setTargetPackage(properties.getMapperPackage());
+        sqlMapGeneratorConfiguration.addProperty("enableSubPackages", "true");
         context.setSqlMapGeneratorConfiguration(sqlMapGeneratorConfiguration);
 
+        // 生成DAO的包名和位置
         JavaClientGeneratorConfiguration javaClientGeneratorConfiguration = new JavaClientGeneratorConfiguration();
         javaClientGeneratorConfiguration.setTargetProject(properties.getProjectPath() + properties.getJavaPath());
         javaClientGeneratorConfiguration.setTargetPackage(properties.getMapperPackage());
         javaClientGeneratorConfiguration.setConfigurationType("XMLMAPPER");
+        javaClientGeneratorConfiguration.addProperty("enableSubPackages", "true");
         context.setJavaClientGeneratorConfiguration(javaClientGeneratorConfiguration);
+        return context;
+    }
 
+    private void genModelAndMapper(Context context, TableProperties tableProperties) {
+        // 要生成的表
         TableConfiguration tableConfiguration = new TableConfiguration(context);
         tableConfiguration.setTableName(tableProperties.getTableName());
         tableConfiguration.setDomainObjectName(tableProperties.getTableClassName());
         tableConfiguration.setGeneratedKey(new GeneratedKey("id", "Mysql", true, null));
-        for (ColumnOverrideDto columnOverrideDto : tableProperties.getColumnOverrides()) {
-            ColumnOverride columnOverride = new ColumnOverride(columnOverrideDto.getColumnName());
-            columnOverride.setJavaProperty(columnOverrideDto.getJavaProperty());
-            columnOverride.setJavaType(columnOverrideDto.getJavaType());
-            tableConfiguration.addColumnOverride(columnOverride);
+        List<ColumnOverride> columnOverrides = tableConfiguration.getColumnOverrides();
+        if (!columnOverrides.isEmpty()) {
+            for (ColumnOverrideDto columnOverrideDto : tableProperties.getColumnOverrides()) {
+                ColumnOverride columnOverride = new ColumnOverride(columnOverrideDto.getColumnName());
+                columnOverride.setJavaProperty(columnOverrideDto.getJavaProperty());
+                columnOverride.setJavaType(columnOverrideDto.getJavaType());
+                tableConfiguration.addColumnOverride(columnOverride);
+            }
         }
         context.addTableConfiguration(tableConfiguration);
 
@@ -105,12 +125,13 @@ public class GeneratorUtil {
             throw new RuntimeException("生成Model和Mapper失败：" + warnings);
         }
 
-        String modelName = tableNameConvertUpperCamel(tableProperties.getTableClassName());
+        String modelName = tableProperties.getTableClassName();
         System.out.println(modelName + ".java 生成成功");
         System.out.println(modelName + "Mapper.java 生成成功");
         System.out.println(modelName + "Mapper.xml 生成成功");
     }
 
+    // 生成service
     private void genService(String tableName) {
         try {
             freemarker.template.Configuration cfg = getConfiguration();
@@ -127,8 +148,8 @@ public class GeneratorUtil {
             data.put("abstractService", properties.getAbstractService());
             data.put("abstractServiceImpl", properties.getAbstractServiceImpl());
 
-            String baseServicePath = properties.getProjectPath() + properties.getJavaPath()
-                    + packageConvertPath(properties.getServicePackage());
+            String baseServicePath = properties.getProjectPath() + properties.getJavaPath() + packageConvertPath(
+                    properties.getServicePackage());
 
             File file = new File(baseServicePath + modelNameUpperCamel + "Service.java");
             if (!file.getParentFile().exists()) {
@@ -151,7 +172,8 @@ public class GeneratorUtil {
     private freemarker.template.Configuration getConfiguration() throws IOException {
         freemarker.template.Configuration cfg = new freemarker.template.Configuration(
                 freemarker.template.Configuration.VERSION_2_3_23);
-        cfg.setDirectoryForTemplateLoading(new File(properties.getProjectPath() + properties.getTemplatePath()));
+        cfg.setDirectoryForTemplateLoading(new File(
+                "E:\\app\\mybatis-generagor-plugin\\mybatisPlugin\\src\\main\\resources\\generator\\template"));
         cfg.setDefaultEncoding("UTF-8");
         cfg.setTemplateExceptionHandler(TemplateExceptionHandler.IGNORE_HANDLER);
         return cfg;
@@ -187,26 +209,5 @@ public class GeneratorUtil {
 
     private static String packageConvertPath(String packageName) {
         return String.format("/%s/", packageName.contains(".") ? packageName.replaceAll("\\.", "/") : packageName);
-    }
-
-    public static void main(String[] args) {
-        GeneratorProperties properties = new GeneratorProperties();
-        properties.setJdbcUrl(
-                "jdbc:mysql://");
-        properties.setJdbcUsername("root");
-        properties.setJdbcPassword("pass");
-        properties.setJdbcClassDriverName("com.mysql.jdbc.Driver");
-        properties.setAuthor("zero");
-        properties.setProjectPath("E:/app/" + "takeaway/api/product-service/");
-        properties.setPluginClass("org.mybatis.plugin.SpringBootGeneratorPlugin");
-        properties.setMyMapperFile("com.zero.common.conf.MyMapper");
-        properties.setServicePackage("com.zero.product.service");
-        properties.setMapperPackage("com.zero.product.dao");
-        properties.setModelPackage("com.zero.product.po");
-        properties.setAbstractService("com.zero.common.common.BaseService");
-        properties.setAbstractServiceImpl("com.zero.common.common.AbstractService");
-        TableProperties orderDetailProperties = new TableProperties("order_detail", "null", null);
-        properties.setTablePropertiesList(Arrays.asList(orderDetailProperties));
-        new GeneratorUtil(properties).generator();
     }
 }
